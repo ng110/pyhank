@@ -74,6 +74,8 @@ class HankelTransform:
         if radial_grid is None and k_grid is None:
             if max_radius is None or n_points is None:
                 raise ValueError(usage)
+#            else:
+#                radial_grid = 
         elif k_grid is not None:
             if max_radius is not None or n_points is not None or radial_grid is not None:
                 raise ValueError(usage)
@@ -108,6 +110,7 @@ class HankelTransform:
         self.v = self.alpha / (2 * np.pi * self.max_radius)
         self.kr = 2 * np.pi * self.v
         self.v_max = self.alpha_n1 / (2 * np.pi * self.max_radius)
+        self.kmax = (2 * np.pi * self.v_max)
         self.S = self.alpha_n1
 
         # Calculate hankel matrix and vectors
@@ -191,7 +194,36 @@ class HankelTransform:
         :return: Interpolated function at the points held in :attr:`~.HankelTransform.original_radial_grid`.
         :rtype: :class:`numpy.ndarray`
         """
-        return _spline(self.r, function, self.original_radial_grid)
+#        return _spline(self.r, function, self.original_radial_grid)
+        return self.resample_r(function, self.original_radial_grid)
+
+    def resample_r(self, function: np.ndarray, rpoints: np.ndarray = None) -> np.ndarray:
+        """Interpolate a function, assumed to have been given at the Hankel transform points
+        ``self.r`` (as returned by :meth:`HankelTransform.iqdht`) onto a given grid of r values. If
+        unspecified, the original grid used to construct the ``HankelTransform`` object is used.
+
+        This method uses the generalised sampling theorem to efficiently and accurately reconstruct the 
+        function at any point, including r=0, as described by Andrew W. Norfolk and Edward J. Grace, 
+        "Reconstruction of optical fields with the Quasi-discrete Hankel transform," Opt. Express 18, 10551-10556 (2010) 
+
+        :parameter function: The function to be interpolated. Specified at the radial points
+            ``self.r``.
+        :type function: :class:`numpy.ndarray`
+        :parameter rpoints: (Optional) The radial grid that will be used to resample the supplied function
+        :type rpoints: :class:`numpy.ndarray`
+
+        :return: Interpolated function at the specified points.
+        :rtype: :class:`numpy.ndarray`
+        """
+        if rpoints is None:
+            rpoints = self.original_radial_grid
+        assert function.shape[0] == self.alpha.shape[0]
+        self.kmax = (2 * np.pi * self.v_max)
+        rnp = (self.alpha / self.kmax)[np.newaxis, :]   # roots of J_n, where n is order that H was initialised with / kmax. size=(n_points)
+        r = rpoints[:, np.newaxis]
+        Sk = 2 * (rnp * scipy_bessel.jv(self.order, self.kmax * r)) \
+            / (self.kmax * (rnp**2 - r**2) * scipy_bessel.jv(self.order + 1, self.kmax * rnp))
+        return Sk @ function
 
     def to_transform_k(self, function: np.ndarray) -> np.ndarray:
         """Interpolate a function, assumed to have been given at the original k
@@ -230,7 +262,35 @@ class HankelTransform:
         :return: Interpolated function at the points held in :attr:`~.HankelTransform.original_k_grid`.
         :rtype: :class:`numpy.ndarray`
         """
+#        return self.resample_k(function, self.original_k_grid)
         return _spline(self.kr, function, self.original_k_grid)
+
+    def resample_k(self, function: np.ndarray, kpoints: np.ndarray = None) -> np.ndarray:
+        """Interpolate a function, assumed to have been given at the Hankel transform points
+        ``self.kr`` (as returned by :meth:`HankelTransform.qdht`) onto a given grid of k values. If
+        unspecified, the original grid used to construct the ``HankelTransform`` object is used.
+
+        This method uses the generalised sampling theorem to efficiently and accurately reconstruct the 
+        function at any point, including k=0, as described by Andrew W. Norfolk and Edward J. Grace, 
+        "Reconstruction of optical fields with the Quasi-discrete Hankel transform," Opt. Express 18, 10551-10556 (2010) 
+
+        :parameter function: The function to be interpolated. Specified at the radial points
+            ``self.kr``.
+        :type function: :class:`numpy.ndarray`
+        :parameter kpoints: (Optional) The radial k grid that will be used to resample the supplied function
+        :type kpoints: :class:`numpy.ndarray`
+
+        :return: Interpolated function at the specified points.
+        :rtype: :class:`numpy.ndarray`
+        """
+        if kpoints is None:
+            kpoints = self.original_k_grid
+        assert function.shape[0] == self.alpha.shape[0]
+        knp = (self.alpha / self.max_radius)[np.newaxis, :]   # roots of J_n, where n is order that H was initialised with / kmax. size=(n_points)
+        k = kpoints[:, np.newaxis]
+        Sk = 2 * (knp * scipy_bessel.jv(self.order, self.max_radius * k)) \
+            / (self.max_radius * (knp**2 - k**2) * scipy_bessel.jv(self.order + 1, self.max_radius * knp))
+        return Sk @ function
 
     def qdht(self, fr: np.ndarray) -> np.ndarray:
         r"""QDHT: Quasi Discrete Hankel Transform
